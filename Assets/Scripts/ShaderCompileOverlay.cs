@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
@@ -20,8 +21,14 @@ public class ShaderCompileOverlay : MonoBehaviour
         DontDestroyOnLoad(go);
         go.AddComponent<ShaderCompileOverlay>();
         CompileBuildSceneShaders();
-        SceneManager.sceneLoaded += (scene, mode) => CompileLoadedSceneShaders();
+        scannedScenes.Clear();
+        SceneManager.sceneLoaded += (scene, mode) =>
+        {
+            if (scannedScenes.Add(scene.path)) CompileLoadedSceneShaders();
+        };
     }
+
+    static readonly HashSet<string> scannedScenes = new HashSet<string>();
 
     static readonly string[] MaterialHolders = { ".mat", ".asset", ".fbx", ".obj", ".blend" };
 
@@ -56,12 +63,19 @@ public class ShaderCompileOverlay : MonoBehaviour
         Compile(materials);
     }
 
+    // Passes forward rendering never draws (deferred, lightmap baking, motion
+    // vectors, 2D). Compiling them would only add wait time.
+    static readonly string[] UnusedLightModes =
+        { "UniversalGBuffer", "Meta", "MotionVectors", "XRMotionVectors", "Universal2D" };
+    static readonly ShaderTagId LightModeTag = new ShaderTagId("LightMode");
+
     static void Compile(IEnumerable<Material> materials)
     {
         // Queues async compile jobs; already-cached passes return immediately.
         foreach (Material mat in materials.Where(m => m != null && m.shader != null).Distinct())
             for (int pass = 0; pass < mat.passCount; pass++)
-                UnityEditor.ShaderUtil.CompilePass(mat, pass);
+                if (!UnusedLightModes.Contains(mat.shader.FindPassTagValue(pass, LightModeTag).name))
+                    UnityEditor.ShaderUtil.CompilePass(mat, pass);
     }
 
     GUIStyle style;
@@ -71,20 +85,50 @@ public class ShaderCompileOverlay : MonoBehaviour
     // Compile jobs arrive in batches; wait a few idle frames before revealing
     // the scene so the overlay doesn't flicker off between batches.
     const int IdleFramesBeforeReveal = 10;
+    // After the first reveal, only bring the overlay back for real compiles,
+    // not the brief cache checks Unity does on scene reloads (e.g. Restart).
+    const float CompileSecondsBeforeReshow = 0.3f;
+
+    bool showing = true;
     int idleFrames;
-    bool Showing => idleFrames < IdleFramesBeforeReveal;
+    float compilingSeconds;
+    float timeScaleBeforeOverlay = 1f;
+
+    void Awake()
+    {
+        // Freeze the game from the very first frame while the overlay is up.
+        timeScaleBeforeOverlay = Time.timeScale;
+        Time.timeScale = 0f;
+    }
 
     void Update()
     {
-        idleFrames = UnityEditor.ShaderUtil.anythingCompiling ? 0 : idleFrames + 1;
+        bool compiling = UnityEditor.ShaderUtil.anythingCompiling;
+        idleFrames = compiling ? 0 : idleFrames + 1;
+        compilingSeconds = compiling ? compilingSeconds + Time.unscaledDeltaTime : 0f;
+
+        if (showing && idleFrames >= IdleFramesBeforeReveal)
+        {
+            showing = false;
+            Time.timeScale = timeScaleBeforeOverlay;
+        }
+        else if (!showing && compilingSeconds >= CompileSecondsBeforeReshow)
+        {
+            showing = true;
+            timeScaleBeforeOverlay = Time.timeScale;
+        }
+
+        // Keep the game paused while the overlay is up (scene loads call
+        // PauseManager.Resume, which would otherwise unfreeze it).
+        if (showing) Time.timeScale = 0f;
 
         // Block menu clicks while the overlay is up.
-        if (Showing && blockedEventSystem == null && EventSystem.current != null)
+        if (showing && blockedEventSystem == null && EventSystem.current != null)
         {
             blockedEventSystem = EventSystem.current;
             blockedEventSystem.enabled = false;
         }
-        else if (!Showing && blockedEventSystem != null)
+        else if (!showing && blockedEventSystem != null)
         {
             blockedEventSystem.enabled = true;
             blockedEventSystem = null;
@@ -93,7 +137,7 @@ public class ShaderCompileOverlay : MonoBehaviour
 
     void OnGUI()
     {
-        if (!Showing) return;
+        if (!showing) return;
 
         if (style == null)
         {
