@@ -8,8 +8,7 @@ using UnityEngine.UI;
 // Editor-only: on a fresh clone Unity has no shader cache and draws cyan
 // placeholders while shaders compile in the background. On Play this queues
 // compilation for every material in the build scenes (MainMenu + all 3 games)
-// and covers the Game view with "Compiling shaders..." until it's done, so the
-// main menu only appears once every game is ready. Clicks are blocked meanwhile.
+// and covers the Game view with "Compiling shaders..." until it's done. Clicks are blocked meanwhile.
 // Builds precompile shaders, so this never shows (or exists) in a build.
 public class ShaderCompileOverlay : MonoBehaviour
 {
@@ -116,7 +115,8 @@ public class ShaderCompileOverlay : MonoBehaviour
         dots = (dots + Time.unscaledDeltaTime * 2f) % 4f;
         GUI.Label(new Rect(0, 0, Screen.width, Screen.height),
             "Compiling shaders" + new string('.', (int)dots) +
-            "\n<size=18>First launch only, the menu appears when every game is ready</size>", style);
+            "\n<size=18>The game will start once shaders are ready</size>" +
+            "\n<size=14>This only happens on first launch. After that, the game starts instantly.</size>", style);
     }
 #endif
 }
