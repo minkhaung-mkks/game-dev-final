@@ -6,7 +6,9 @@
 # See: https://github.com/github/gitignore/tree/main/Global
 #
 .utmp/
-/[Ll]ibrary/
+# Library/ ignored except last-open-scene file, so fresh clones open MainMenu
+/[Ll]ibrary/*
+!/[Ll]ibrary/LastSceneManagerSetup.txt
 /[Tt]emp/
 /[Oo]bj/
 /[Bb]uild/
